@@ -1,379 +1,286 @@
 # EgyptAir MCP Server
 
+# Memory System Implementation
+
 ## Overview
 
-This project was developed as part of the Autonomous Agents – MCP Server Lab.
+A custom memory system was implemented to enhance the AI agent's ability to maintain context, store important information, and manage conversations efficiently.
 
-Our goal is to build a secure Model Context Protocol (MCP) server that allows an AI assistant to safely interact with EgyptAir's internal operational data without giving the language model direct access to the production database.
+The goal was to give the agent a structured memory architecture instead of relying only on the current conversation context.
 
-Instead of exposing SQL queries or shell commands, the server provides carefully designed business tools that perform validated and authorized operations.
+The memory system is responsible for:
 
-The MCP server acts as a secure layer between the AI assistant and the database.
-
-Architecture:
-LLM
-|
-▼
-MCP Client
-|
-▼
-EgyptAir MCP Server
-|
-▼
-SQLite Database
----
-
-# Company
-
-**EgyptAir** is Egypt's national airline.
-
-The company handles thousands of passenger bookings every day. Flight delays and cancellations often lead to customer compensation requests that must be reviewed by customer service employees and supervisors.
-
-The objective of this project is to build an AI assistant that helps employees manage these operations safely through MCP.
+* Storing recent conversation history.
+* Preserving important past interactions.
+* Managing long-term knowledge.
+* Controlling what information should be kept or removed.
 
 ---
 
-# Problem Statement
+# Memory Architecture
 
-Without MCP, an LLM could generate arbitrary SQL queries directly against the production database, creating several risks:
+The memory system is divided into multiple layers:
 
-- Invalid SQL queries
-- Unauthorized data modification
-- Prompt injection attacks
-- Poor auditing
-- Difficult monitoring
-
-Instead of giving the LLM direct database access, this project exposes controlled business operations through an MCP Server.
-
-The server handles:
-
-- Authentication
-- Authorization
-- Validation
-- Business rules
-- Database operations
+```
+                User Conversation
+                       |
+                       v
+              Memory Manager
+                       |
+        +--------------+--------------+
+        |              |              |
+        v              v              v
+ Short-Term       Episodic       Semantic
+   Memory          Memory         Memory
+```
 
 ---
 
-# Project Structure
+# 1. Memory Manager
 
+The `MemoryManager` acts as the central controller for all memory operations.
 
-EgyptAir-MCP-Server/
+Responsibilities:
 
-│
-├── db/
-│ ├── schema.sql
-│ ├── seed.sql
-│ ├── create_db.py
-│ ├── database.db
-│ ├── erd.mmd
-│ └── erd.png
-│
-├── mcp_server/
-│ ├── app.py
-│ ├── server.py
-│ ├── database.py
-│ ├── config.py
-│ ├── authorization.py
-│ ├── validation.py
-│ ├── notifications.py
-│ └── tools/
-│
-├── agent/
-│
-└── README.md
+* Receiving new conversation data.
+* Deciding where information should be stored.
+* Retrieving relevant memories when needed.
+* Managing communication between different memory components.
 
+Main flow:
+
+```
+New Interaction
+       |
+       v
+Memory Manager
+       |
+       +--> Store temporary context
+       |
+       +--> Save important events
+       |
+       +--> Retrieve previous knowledge
+```
 
 ---
 
-# Database
+# 2. Short-Term Memory
 
-SQLite was selected as the database engine because it is lightweight, portable, and easy to demonstrate during development.
+Short-term memory stores recent conversation context.
 
-The database contains the following entities:
+Purpose:
 
-- Employees
-- Flights
-- Passengers
-- Bookings
-- CompensationRequests
-- Policies
-- Reports
-
-The complete Entity Relationship Diagram is available inside:
-
-
-db/erd.png
-
-
----
-
-# Current MCP Tools
-
-| Tool | Type | Purpose |
-|------|------|---------|
-| get_flight_status | Read | Retrieve flight status |
-| get_booking_details | Read | Retrieve booking information |
-| get_compensation_policy | Read | Read compensation policy |
-| submit_compensation_request | Write | Create a new compensation request |
-| approve_compensation | Write | Approve or reject compensation |
-| generate_disruption_report | Read | Generate disruption report |
-| draft_passenger_email | Read | Draft passenger email |
-
----
-
-# Tool Classification
-
-## Read Tools
-
-Read tools only retrieve information and do not modify database state.
-
-Examples:
-
-- get_flight_status
-- get_booking_details
-- get_compensation_policy
-- generate_disruption_report
-- draft_passenger_email
-
----
-
-## Write Tools
-
-Write tools modify database information and require additional protection.
-
-Examples:
-
-- submit_compensation_request
-- approve_compensation
-
----
-
-# Defensive Tool Design
-
-Write tools are designed using secure business operations instead of exposing SQL queries to the LLM.
-
-Security measures include:
-
-- Parameterized SQL queries
-- Server-side validation
-- Authorization checks
-- Business rule validation
-- Structured responses
-
-The LLM only interacts with predefined MCP tools and never executes raw SQL commands.
-
----
-
-# Validation
-
-Validation is performed independently from MCP input schemas.
-
-Examples:
-
-- Verify booking exists
-- Verify flight is eligible for compensation
-- Verify requested amount is valid
-- Verify compensation request exists
-- Verify request is still pending before approval
-
----
-
-# Authorization
-
-Only authorized employees can execute sensitive write operations.
+* Maintain the current conversation flow.
+* Allow the agent to understand references to recent messages.
+* Provide immediate context during reasoning.
 
 Example:
 
-- Customer Service → Submit compensation requests
-- Supervisor / Manager → Approve compensation requests
+```
+User:
+My flight was delayed.
 
-Authorization is performed inside the MCP tool handler before any database modification.
+User:
+Can I get compensation?
 
----
+Agent:
+Uses short-term memory to understand
+that "my flight" refers to the delayed flight.
+```
 
-# Implemented Issue: Secure Compensation Approval Workflow
+Implementation:
 
-## Issue
-
-The `approve_compensation` tool was a high-risk write operation because it directly modified compensation requests.
-
-The missing requirements were:
-
-- Human confirmation before approval
-- MCP notification after state changes
-- Protection against accidental database updates
-
----
-
-# Solution 1: MCP Elicitation
-
-## Problem
-
-Before implementation, the approval process updated the database immediately after authorization checks.
-
-This could allow accidental approval of compensation requests.
+* Stores recent conversation turns.
+* Uses a size limit to avoid unlimited memory growth.
+* Removes older information when the limit is reached.
 
 ---
 
-## Implementation
+# 3. Episodic Memory
 
-MCP Elicitation was added before the database update.
+Episodic memory stores important events and previous interactions.
 
-The workflow became:
+Purpose:
 
-
-Manager
-|
-approve_compensation()
-|
-Authorization Check
-|
-Request Validation
-|
-MCP Elicitation
-|
-User Confirmation
-|
-Database Update
-
-
-The server asks the user for confirmation:
+* Remember past experiences.
+* Preserve important actions performed by the agent.
+* Allow future conversations to benefit from previous events.
 
 Example:
 
+```
+Passenger requested compensation.
 
-Are you sure you want to approve this compensation request?
+Flight:
+EA123
 
-Request ID: 8
+Action:
+Compensation request submitted.
 
-Amount: $350
+Result:
+Request approved.
+```
 
-
-If the user confirms:
-
-- Status becomes Approved
-- approved_by is stored
-
-If the user rejects:
-
-- The operation is cancelled
-- No database modification occurs
-
-This ensures sensitive operations require explicit human approval.
+This allows the agent to understand previous cases and interactions.
 
 ---
 
-# Solution 2: MCP tools/list_changed Notification
+# 4. Semantic Memory
 
-## Problem
+Semantic memory stores reusable knowledge.
 
-After changing compensation status, connected clients needed a way to know that the server state had changed.
+Purpose:
 
----
+* Store general information.
+* Keep facts that are useful across different conversations.
+* Avoid repeatedly retrieving the same information.
 
-## Implementation
+Examples:
 
-After successful compensation processing, the server sends:
+```
+Compensation rules
+Airline policies
+Operational procedures
+```
 
-
-notifications/tools/list_changed
-
-
-This allows MCP clients to refresh their available information and stay synchronized with server changes.
-
----
-
-# Implemented Issue: MCP Progress Tracking
-
-## Problem
-
-The `generate_disruption_report` tool performs multiple database operations and may take time.
-
-Previously, the client had no information about the current execution state.
+Unlike episodic memory, semantic memory stores knowledge rather than specific events.
 
 ---
 
-## Solution
+# 5. Memory Routing
 
-MCP progress notifications were added.
+A routing mechanism was implemented to decide where information should be stored.
 
-The report generation now provides updates:
+The agent analyzes each interaction:
 
+```
+New Information
+       |
+       v
+Memory Router
+       |
+       +--> Temporary context?
+       |
+       +--> Important event?
+       |
+       +--> General knowledge?
+```
 
-10% Starting report generation
-
-30% Counting delayed flights
-
-60% Counting cancelled flights
-
-90% Calculating statistics
-
-100% Report completed
-
-
-After reaching 100%, the server returns the final report:
-
-Contains:
-
-- Delayed flights
-- Cancelled flights
-- Average delay
-- Affected passengers
-
-This improves user experience during long-running operations.
+Then the information is stored in the appropriate memory type.
 
 ---
 
+# 6. Memory Consolidation
 
+A consolidation process was added to organize stored information.
 
-# LLM call (gemini)
+Purpose:
 
-MCP server is Ingerated with gemini agent and access to all listed tools
-The user type his messege to the agent then route it 
-The Agent can connect to mcp either stio or http (sse)
-Agent files could be found in /agent folder:
-    - agent.py
-    - agnet_llm.py
-for http transport could be found in 
-    - transport.py
-To switch between stio / http 
-switch the comment section in server.py
+* Convert useful short-term information into long-term memory.
+* Remove unnecessary data.
+* Keep memory efficient.
 
----
+Example:
 
-# Current Progress
+```
+Short-Term Memory:
 
-The following components have been completed:
+User complained about delayed flight.
 
-- Project planning
-- Company selection
-- Problem definition
-- Database schema
-- Seed data
-- SQLite database
-- ERD
-- MCP Server initialization
-- Database connection layer
-- Configuration module
-- Validation module
-- Authorization module
-- Initial MCP tools
-- Secure compensation approval workflow
-- MCP Elicitation
-- MCP tools/list_changed notification
-- MCP Progress Tracking
-- Capability Negotiation
-- Resources
-- Prompts
-- Sampling
-- Streamable HTTP Transport
-- Agent Integration
-- Final Demonstration
+        |
+        v
+
+Consolidation:
+
+Important event detected.
+
+        |
+        v
+
+Stored in Episodic Memory.
+```
 
 ---
 
+# 7. Storage Layer
 
+The memory system separates storage logic from memory logic.
+
+Implemented components:
+
+```
+memory/
+│
+├── manager.py
+├── models.py
+├── short_term.py
+├── episodic_store.py
+├── semantic_store.py
+├── consolidation.py
+├── router.py
+├── storage.py
+└── config.py
+```
+
+Each module has a specific responsibility:
+
+| File                | Responsibility                      |
+| ------------------- | ----------------------------------- |
+| `manager.py`        | Controls memory operations          |
+| `models.py`         | Defines memory data structures      |
+| `short_term.py`     | Handles recent conversation context |
+| `episodic_store.py` | Stores past events                  |
+| `semantic_store.py` | Stores reusable knowledge           |
+| `router.py`         | Decides memory destination          |
+| `consolidation.py`  | Transfers important information     |
+| `storage.py`        | Handles persistence                 |
+| `config.py`         | Stores memory configuration         |
+
+---
+
+# Challenges Solved
+
+## Python Package Structure
+
+Problem:
+
+```
+ModuleNotFoundError: No module named 'memory'
+```
+
+Cause:
+
+The memory package used incorrect absolute imports.
+
+Solution:
+
+Changed internal imports from:
+
+```python
+from memory.models import ConversationTurn
+```
+
+to:
+
+```python
+from .models import ConversationTurn
+```
+
+This converted the memory folder into a proper Python package.
+
+---
+
+# Result
+
+The agent now has a structured memory system capable of:
+
+* Maintaining current conversation context.
+* Remembering previous events.
+* Storing reusable knowledge.
+* Managing memory growth.
+* Supporting more advanced autonomous agent behavior.
+
+This memory architecture provides the foundation for building more reliable and context-aware AI agents.
 
 ---
 
@@ -390,7 +297,7 @@ The following components have been completed:
 
 # Team
 
-- Marwan Ahmed
+- yousef salah
 - Ahmed Ashraf
 - Youssef Hatem
 
