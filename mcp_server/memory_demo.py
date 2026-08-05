@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 
-from .manger import MemoryManager
-from .semantic_store import SemanticStore
-from .models import SemanticFact
+from memory.manger import MemoryManager
+from memory.semantic_store import SemanticStore
+from memory.models import SemanticFact
 
 
 def main():
