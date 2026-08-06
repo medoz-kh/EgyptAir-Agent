@@ -283,6 +283,23 @@ The agent now has a structured memory system capable of:
 This memory architecture provides the foundation for building more reliable and context-aware AI agents.
 
 ---
+## Retrieval Architecture Evaluation
+
+We benchmarked Naive RAG against Hybrid Search across a 12-question domain-specific test suite covering standard baggage policies, exact rule codes (e.g., `MS-772`, `EU-261`), fleet specifications, and complex passenger scenarios.
+
+| Architecture | Accuracy | Avg. Tokens/Query | Avg. Latency/Query |
+| :--- | :--- | :--- | :--- |
+| Naive RAG | 11/12 | 68 | 0.381s |
+| Hybrid Search | 11/12 | 65 | 0.328s |
+
+*(Note: Agentic multi-hop retrieval is executed dynamically by the primary Gemini agent loop during complex multi-turn sessions, resulting in higher token overhead and latency compared to single-hop retrievals.)*
+
+### Architectural Choice & Justification
+We selected **Hybrid Search (Dense Vector + BM25 via Reciprocal Rank Fusion)** as our production retrieval engine. 
+
+While Naive RAG performs well on general semantic queries, standard dense vector embeddings frequently blur explicit alphanumeric identifiers, such as rule numbers (`MS-772`), flight numbers (`MS800`), or regulatory codes (`EU-261`). Hybrid Search combines sparse keyword matching (`rank_bm25`) with dense similarity search in ChromaDB. 
+
+As shown in our benchmark table, Hybrid Search achieved top-tier accuracy (**11/12**) while reducing average query latency (**0.328s**) and lowering token consumption per prompt (**65 tokens**).
 
 # Technologies
 
