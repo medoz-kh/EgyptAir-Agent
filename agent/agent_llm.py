@@ -1,5 +1,8 @@
 import asyncio
 import os
+from rag.vector_store import VectorStoreManager
+from rag.hybrid_rag import HybridRAGSearch
+from rag.self_rag import SelfRAGVerifier
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -7,7 +10,8 @@ from mcp_server.memory.manger import MemoryManager
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 import mcp.types as mcp_types
-
+import sys
+import json
 import copy
 load_dotenv()
 
@@ -107,12 +111,9 @@ class MCPGeminiClient:
     async def run(self):
 
         server_params = StdioServerParameters(
-
-            command="python",
-
+            command=sys.executable,  # Forces MCP server to use the active .venv Python
             args=[self.server_script_path],
-
-            env=None
+            env=dict(os.environ)  # Passes environment variables to the server
         )
 
         print(
@@ -171,77 +172,105 @@ class MCPGeminiClient:
 
                 policy_text = policy_resource.contents[0].text
 
+                # ====================================================
+                # NEW: Initialize RAG & Seed Vector Store
+                # ====================================================
+                vector_store = VectorStoreManager()
+                hybrid_rag = HybridRAGSearch(vector_store)
+                self_rag = SelfRAGVerifier(self.genai_client)
+
+                # Seed ChromaDB with policies from the database
+                try:
+                    policies_data = json.loads(policy_text)
+                    if isinstance(policies_data, list):
+                        docs = [p["content"] for p in policies_data]
+                        metas = [
+                            {"policy_id": p["policy_id"], "title": p["title"]}
+                            for p in policies_data
+                        ]
+                        ids = [f"policy_{p['policy_id']}" for p in policies_data]
+                        
+                        # Add to vector database
+                        vector_store.add_documents(
+                            documents=docs,
+                            metadatas=metas,
+                            ids=ids
+                        )
+                        print("✅ Seeded Vector Store with EgyptAir Policies!")
+                except Exception as e:
+                    print(f"⚠️ Vector Store Seeding Note: {e}")
+
+                # System instruction base prompt
                 system_instruction = (
                     "You are an EgyptAir customer service assistant.\n"
-                    "Use the official EgyptAir policies below "
-                    "when answering passengers.\n\n"
-                    f"{policy_text}"
+                    "Use the provided official EgyptAir policy context when answering passengers.\n"
+                    "Do not make up facts outside the retrieved policy details."
                 )
 
                 gemini_tools = [
-
                     types.Tool(
                         function_declarations=function_declarations
                     )
-
                 ] if function_declarations else []
 
-                print(
-                    "\n✨ Gemini MCP Client Ready!"
-                )
+                print("\n✨ Gemini MCP Client & RAG Engine Ready!")
 
                 # ==========================
-                # Gemini conversation history
+                # Gemini & Memory Initialization
                 # ==========================
-
                 chat_history = []
-
-                # ==========================
-                # Memory System
-                # ==========================
-
                 memory = MemoryManager()
 
                 while True:
                     user_input = input("\nUser > ").strip()
 
-                    # ---------------------------------------
-                    # Exit
-                    # ---------------------------------------
                     if user_input.lower() in ["exit", "quit"]:
-
                         print("\nRunning Memory Consolidation...\n")
-
                         memory.consolidate()
-
                         break
 
                     if not user_input:
                         continue
 
+                    # ====================================================
+                    # NEW: Perform Hybrid RAG Search for User Query
+                    # ====================================================
+                    retrieved_chunks = hybrid_rag.search(
+                        query=user_input,
+                        n_results=3
+                    )
+
+                    context_text = ""
+                    for chunk in retrieved_chunks:
+                        # Check relevance using Self-RAG
+                        is_relevant = await self_rag.verify_relevance(
+                            query=user_input,
+                            retrieved_chunk=chunk["content"]
+                        )
+                        if is_relevant:
+                            context_text += f"\n- Policy Title: {chunk['metadata'].get('title', 'N/A')}\n  Details: {chunk['content']}\n"
+
+                    # Combine user input with retrieved grounded context
+                    augmented_user_input = (
+                        f"{user_input}\n\n"
+                        f"[RETRIEVED EGYPTAIR POLICIES CONTEXT]:\n{context_text if context_text else 'No specific policy chunk retrieved.'}"
+                    )
+
                     # ---------------------------------------
                     # Memory (User Message)
                     # ---------------------------------------
-                    memory.add_turn(
-                        role="user",
-                        content=user_input
-                    )
-
-                    memory.update_goal(
-                        "Assist the passenger with their request."
-                    )
+                    memory.add_turn(role="user", content=user_input)
+                    memory.update_goal("Assist the passenger with their request.")
 
                     # ---------------------------------------
                     # Gemini Chat History
                     # ---------------------------------------
+                    # We pass the augmented input (with RAG context) to Gemini, 
+                    # but we only added the raw user_input to the semantic memory above.
                     chat_history.append(
                         types.Content(
                             role="user",
-                            parts=[
-                                types.Part.from_text(
-                                    text=user_input
-                                )
-                            ]
+                            parts=[types.Part.from_text(text=augmented_user_input)]
                         )
                     )
 
