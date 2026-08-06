@@ -1,0 +1,74 @@
+[
+  {
+    "id": "q1",
+    "category": "General Policy",
+    "query": "What is the standard economy class baggage allowance for international flights?",
+    "expected_keywords": ["economy", "allowance", "international", "kg", "pieces"]
+  },
+  {
+    "id": "q2",
+    "category": "General Policy",
+    "query": "Can I bring a pet in the cabin?",
+    "expected_keywords": ["pet", "cabin", "carrier", "weight"]
+  },
+  {
+    "id": "q3",
+    "category": "General Policy",
+    "query": "What is the process for requesting a wheelchair at the airport?",
+    "expected_keywords": ["wheelchair", "assistance", "request", "hours prior"]
+  },
+  {
+    "id": "q4",
+    "category": "General Policy",
+    "query": "How early should I arrive for an international flight?",
+    "expected_keywords": ["arrive", "check-in", "hours", "international"]
+  },
+  {
+    "id": "q5",
+    "category": "Exact Identifiers",
+    "query": "What are the exact penalty fees under rule MS-772 for class Y rebooking?",
+    "expected_keywords": ["MS-772", "penalty", "class Y", "fee"]
+  },
+  {
+    "id": "q6",
+    "category": "Exact Identifiers",
+    "query": "Is flight MS800 eligible for automatic mileage upgrades?",
+    "expected_keywords": ["MS800", "mileage", "upgrade"]
+  },
+  {
+    "id": "q7",
+    "category": "Exact Identifiers",
+    "query": "What is the compensation limit under policy EU-261 for a 4-hour delay?",
+    "expected_keywords": ["EU-261", "compensation", "limit", "euros"]
+  },
+  {
+    "id": "q8",
+    "category": "Exact Identifiers",
+    "query": "Does the Boeing 777-300ER have Wi-Fi on board?",
+    "expected_keywords": ["777-300ER", "Wi-Fi", "internet"]
+  },
+  {
+    "id": "q9",
+    "category": "Complex Multi-Hop",
+    "query": "If a passenger on flight MS777 is delayed 5 hours due to maintenance, what food vouchers and rebooking options apply?",
+    "expected_keywords": ["voucher", "rebooking", "maintenance", "delay"]
+  },
+  {
+    "id": "q10",
+    "category": "Complex Multi-Hop",
+    "query": "My business class flight from Cairo to London was canceled. Do I get lounge access while waiting for the rebooked flight the next day, and will the hotel be covered?",
+    "expected_keywords": ["lounge", "hotel", "accommodation", "covered"]
+  },
+  {
+    "id": "q11",
+    "category": "Complex Multi-Hop",
+    "query": "I am traveling with an infant and a snowboard. What are the combined baggage fees and special handling instructions?",
+    "expected_keywords": ["infant", "snowboard", "sporting equipment", "fee"]
+  },
+  {
+    "id": "q12",
+    "category": "Complex Multi-Hop",
+    "query": "A gold tier member is trying to cancel a non-refundable ticket due to a medical emergency. What documentation is required and what is the refund percentage?",
+    "expected_keywords": ["gold", "medical", "certificate", "refund"]
+  }
+]
