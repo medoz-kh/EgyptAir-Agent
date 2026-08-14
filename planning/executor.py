@@ -14,7 +14,13 @@ from google.genai import types
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from external.task_decomposition_and_planning.planning_lab.models import Plan
+from planning.models import Plan
+
+# --- NEW ALGORITHM IMPORTS ---
+from algorithms.plan_and_solve import plan_and_solve
+from algorithms.tree_of_thoughts import tree_of_thoughts
+from algorithms.lats import lats
+from algorithms.environment import Environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,7 +114,46 @@ async def call_mcp_tool(
         return json.loads(text)
     except json.JSONDecodeError:
         return text
+async def decompose_goal(
+    goal: str,
+    client: genai.Client,
+) -> Plan:
 
+    response = await client.aio.models.generate_content(
+        model=MODEL_ID,
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(
+                        text=f"""
+{PLANNER_PROMPT}
+
+User goal:
+{goal}
+
+Return the plan using the required Plan schema.
+"""
+                    )
+                ],
+            )
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=Plan,
+            temperature=0.1,
+        ),
+    )
+
+    if not response.text:
+        raise RuntimeError("Gemini returned an empty decomposition.")
+
+    data = json.loads(response.text)
+
+    # The user's original goal is authoritative.
+    data["goal"] = goal
+
+    return Plan.model_validate(data)
 
 def extract_flight_number(instruction: str) -> str | None:
     match = re.search(
@@ -176,51 +221,10 @@ def task_to_tool_call(
     return None
 
 
-async def decompose_goal(
-    goal: str,
-    client: genai.Client,
-) -> Plan:
-
-    response = await client.aio.models.generate_content(
-        model=MODEL_ID,
-        contents=[
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(
-                        text=f"""
-{PLANNER_PROMPT}
-
-User goal:
-{goal}
-
-Return the plan using the required Plan schema.
-"""
-                    )
-                ],
-            )
-        ],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=Plan,
-            temperature=0.1,
-        ),
-    )
-
-    if not response.text:
-        raise RuntimeError("Gemini returned an empty decomposition.")
-
-    data = json.loads(response.text)
-
-    # The user's original goal is authoritative.
-    data["goal"] = goal
-
-    return Plan.model_validate(data)
-
-
 async def execute_plan(
     plan: Plan,
     session: ClientSession,
+    client: genai.Client,  # Added client so we can pass it to the algorithms
 ) -> dict[str, Any]:
 
     outputs: dict[str, Any] = {}
@@ -233,34 +237,63 @@ async def execute_plan(
 
             tool_call = task_to_tool_call(task.instruction)
 
-            if tool_call is None:
+            # 1. MCP Tool Execution
+            if tool_call is not None:
+                tool_name, arguments = tool_call
+
+                result = await call_mcp_tool(
+                    session,
+                    tool_name,
+                    arguments,
+                )
+
                 return (
                     task_id,
                     {
-                        "type": "reasoning_task",
-                        "instruction": task.instruction,
-                        "dependencies": {
-                            dependency: outputs[dependency]
-                            for dependency in task.depends_on
-                        },
+                        "type": "mcp_tool",
+                        "tool": tool_name,
+                        "arguments": arguments,
+                        "result": result,
                     },
                 )
 
-            tool_name, arguments = tool_call
+            # 2. Algorithmic Routing Logic (If not a direct tool call)
+            # Assemble the context from previous dependencies
+            context_parts = [f"Task: {task.instruction}"]
+            if task.depends_on:
+                context_parts.append("Inputs from previous steps:")
+                for dep in task.depends_on:
+                    context_parts.append(f"- {dep}: {outputs[dep]}")
+            
+            full_prompt = "\n".join(context_parts)
+            instruction_lower = task.instruction.lower()
 
-            result = await call_mcp_tool(
-                session,
-                tool_name,
-                arguments,
-            )
+            print(f"\n[Routing] Analyzing task: {task_id}")
+            
+            # Tier 3: High-Stakes Action (LATS + Grounded Environment)
+            if any(kw in instruction_lower for kw in ["rebook", "write", "update", "database", "schedule"]):
+                print(f" -> Sending to LATS (Database modification detected)")
+                env = Environment()
+                lats_result = await lats(task=full_prompt, client=client, environment=env)
+                final_answer = lats_result.output
+                
+            # Tier 2: Complex Evaluation (Tree of Thoughts)
+            elif any(kw in instruction_lower for kw in ["rank", "compare", "evaluate", "options", "complex"]):
+                print(f" -> Sending to Tree of Thoughts (Complex evaluation detected)")
+                tot_result = await tree_of_thoughts(problem=full_prompt, client=client)
+                final_answer = tot_result[0].state if tot_result else "No valid thoughts generated."
+                
+            # Tier 1: Standard Reasoning (Plan-and-Solve)
+            else:
+                print(f" -> Sending to Plan-and-Solve (Standard reasoning detected)")
+                final_answer = await plan_and_solve(question=full_prompt, client=client)
 
             return (
                 task_id,
                 {
-                    "type": "mcp_tool",
-                    "tool": tool_name,
-                    "arguments": arguments,
-                    "result": result,
+                    "type": "algorithmic_reasoning",
+                    "instruction": task.instruction,
+                    "result": final_answer,
                 },
             )
 
@@ -359,9 +392,11 @@ async def run_decomposition(goal: str) -> dict[str, Any]:
 
             print("\nExecuting plan...")
 
+            # Passed the client parameter down into execute_plan
             outputs = await execute_plan(
                 plan,
                 session,
+                client, 
             )
 
             print("\nGenerating final synthesis...")
