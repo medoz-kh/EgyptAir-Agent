@@ -1,0 +1,3 @@
+[submodule "external/task_decomposition_and_planning"]
+	path = external/task_decomposition_and_planning
+	url = https://github.com/medoz-kh/task_decomposition_and_planning.git
