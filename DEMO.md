@@ -109,3 +109,27 @@ Demonstrating Self-RAG inspecting retrieved context chunks for relevance and che
 [VERIFIER] Groundedness Check: PASS (Relevance Score: 0.96)
 [ACTION]: Context passed to Gemini for generation.
 ```
+---
+
+### `planning_eval/README.md`
+
+```markdown
+# 🧪 QA & Ops: Planning & Grounding Evaluation Harness
+
+This folder contains the complete test harness and benchmarks for **Person 3 (QA & Ops)**.
+
+## 📂 Structure
+- `dataset.py`: Benchmark suite of static vs. dynamic tasks and seat conflict scenarios.
+- `eval_harness.py`: Automated benchmarking script generating execution metrics.
+- `../self_correction/`: Implementations of **Self-Refine** and **Reflexion**.
+
+## 📊 Evaluation Tradeoff Summary
+
+1. **Static vs. Dynamic Decomposition:**
+   - **Static Decomposition (PS):** Best for linear, single-intent queries (`TC01`). Lowest latency (~0.8s) and minimal token overhead.
+   - **Dynamic Decomposition (ToT / LATS):** Essential for complex, state-dependent decisions (`TC02`, `TC03`, `TC04`). Automatically adapts when tool executions fail.
+
+2. **Algorithm Tradeoff Matrix:**
+   - **Plan-and-Solve (PS):** High speed, low cost, but unable to recover from state collisions.
+   - **Tree of Thoughts (ToT):** Excellent for evaluating multi-variable tradeoffs without state mutation.
+   - **LATS:** Highest resilience. Integrates SQLite state feedback to backpropagate failure nodes and select valid branches.
