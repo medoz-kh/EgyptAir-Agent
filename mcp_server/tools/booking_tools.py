@@ -1,18 +1,10 @@
-from database import get_connection
-from app import mcp
-from pydantic import BaseModel, Field, ConfigDict
+from mcp_server.database import get_connection
+from mcp_server.app import mcp
 
-# -----------------------------
-# Strict JSON Schema
-# -----------------------------
-class GetBookingDetailsArgs(BaseModel):
-    booking_id: int = Field(..., description="The ID of the booking to retrieve.")
-    
-    # Enforces additionalProperties: false
-    model_config = ConfigDict(extra="forbid")
+
 
 @mcp.tool()
-def get_booking_details(args: GetBookingDetailsArgs) -> dict:
+def get_booking_details(booking_id: int) -> dict:
     """
     Retrieve booking details including passenger and flight information.
     """
@@ -39,7 +31,7 @@ def get_booking_details(args: GetBookingDetailsArgs) -> dict:
                 ON b.flight_id = f.flight_id
             WHERE b.booking_id = ?
             """,
-            (args.booking_id,),
+            (booking_id,),
         )
 
         booking = cursor.fetchone()

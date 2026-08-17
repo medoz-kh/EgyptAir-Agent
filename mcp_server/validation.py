@@ -1,4 +1,4 @@
-from database import get_connection
+from mcp_server.database import get_connection
 
 
 def validate_booking_exists(booking_id: int) -> dict:

@@ -1,7 +1,7 @@
 import json
 from fastmcp import FastMCP, Context
-from app import mcp
-from database import get_connection
+from mcp_server.app import mcp
+from mcp_server.database import get_connection
 
 @mcp.tool()
 async def draft_passenger_email(booking_id: int, ctx: Context) -> str:

@@ -171,3 +171,33 @@ CREATE TABLE Reports (
     FOREIGN KEY(employee_id)
         REFERENCES Employees(employee_id)
 );
+-- ===========================
+-- Failure Tickets (Final Project)
+-- ===========================
+
+CREATE TABLE FailureTickets (
+    ticket_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    thread_id TEXT NOT NULL,          -- Connects the ticket to the specific LangGraph run
+    
+    node_name TEXT NOT NULL,          -- The exact node where the agent crashed
+    
+    error_message TEXT NOT NULL,      -- The exception caught
+    
+    state_dump TEXT,                  -- JSON string of the agent's state when it died
+    
+    status TEXT NOT NULL CHECK (
+        status IN (
+            'Open',
+            'Investigating',
+            'Resolved'
+        )
+    ),
+    
+    resolved_by INTEGER,              -- The Admin/Employee who clears the ticket
+    
+    created_at TEXT NOT NULL,
+    
+    FOREIGN KEY(resolved_by)
+        REFERENCES Employees(employee_id)
+);

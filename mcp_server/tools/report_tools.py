@@ -1,5 +1,5 @@
-from app import mcp
-from database import get_connection
+from mcp_server.app import mcp
+from mcp_server.database import get_connection
 from fastmcp import Context
 import asyncio
 

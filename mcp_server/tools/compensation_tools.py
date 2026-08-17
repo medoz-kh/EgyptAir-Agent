@@ -1,8 +1,8 @@
-from database import get_connection
-from app import mcp
-from authorization import authorize_manager, authorize_customer_service
-from notifications import notify_tools_changed
-from validation import (
+from mcp_server.database import get_connection
+from mcp_server.app import mcp
+from mcp_server.authorization import authorize_manager, authorize_customer_service
+from mcp_server.notifications import notify_tools_changed
+from mcp_server.validation import (
     validate_booking_exists,
     validate_requested_amount,
     validate_flight_eligible_for_compensation,

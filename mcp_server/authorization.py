@@ -1,4 +1,4 @@
-from database import get_connection
+from mcp_server.database import get_connection
 
 
 def check_employee_exists(employee_id: int) -> dict:

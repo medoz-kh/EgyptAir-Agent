@@ -17,10 +17,10 @@ from mcp.client.stdio import stdio_client
 from planning.models import Plan
 
 # --- NEW ALGORITHM IMPORTS ---
-from algorithms.plan_and_solve import plan_and_solve
-from algorithms.tree_of_thoughts import tree_of_thoughts
-from algorithms.lats import lats
-from algorithms.environment import Environment
+from planning.algorithms.plan_and_solve import plan_and_solve
+from planning.algorithms.tree_of_thoughts import tree_of_thoughts
+from planning.algorithms.lats import lats
+from planning.algorithms.environment import Environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,10 +43,10 @@ Rules:
 - The plan must contain exactly one final synthesis task.
 - The final synthesis task must depend on every necessary branch.
 - Task instructions must be concrete.
-- Only request an EgyptAir MCP operation when the required arguments
-  are explicitly available in the user's goal.
-- Never invent flight numbers, booking IDs, employee IDs, amounts, or
-  other values.
+- CRITICAL RULE: If a task requires retrieving or modifying database records, the instruction MUST explicitly mandate calling the exact MCP tool (e.g., "Use the get_booking_details tool to fetch booking 1001").
+- CRITICAL RULE: You are strictly forbidden from simulating, guessing, or hallucinating data outputs. You MUST use MCP tools to retrieve factual data.
+- Only request an EgyptAir MCP operation when the required arguments are explicitly available in the user's goal.
+- Never invent flight numbers, booking IDs, employee IDs, amounts, or other values.
 """
 
 
@@ -84,7 +84,7 @@ def create_gemini_client() -> genai.Client:
 async def connect_mcp():
     server_params = StdioServerParameters(
         command=sys.executable,
-        args=[str(SERVER_PATH)],
+        args=["-m", "mcp_server.server"],  # Anchors the paths perfectly!
         env=dict(os.environ),
     )
 
@@ -114,6 +114,17 @@ async def call_mcp_tool(
         return json.loads(text)
     except json.JSONDecodeError:
         return text
+def clean_schema(schema: dict) -> dict:
+    if isinstance(schema, dict):
+        schema.pop("additionalProperties", None)
+        schema.pop("additional_properties", None)
+        for key, value in schema.items():
+            clean_schema(value)
+    elif isinstance(schema, list):
+        for item in schema:
+            clean_schema(item)
+    return schema
+
 async def decompose_goal(
     goal: str,
     client: genai.Client,
@@ -140,7 +151,7 @@ Return the plan using the required Plan schema.
         ],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=Plan,
+            response_schema=clean_schema(Plan.model_json_schema()),
             temperature=0.1,
         ),
     )
@@ -186,7 +197,8 @@ def task_to_tool_call(
 
     text = instruction.lower()
 
-    if "flight status" in text:
+    # Look for either the plain text or the exact tool name
+    if "flight status" in text or "get_flight_status" in text:
         flight_number = extract_flight_number(instruction)
 
         if flight_number is None:
@@ -199,7 +211,8 @@ def task_to_tool_call(
             },
         )
 
-    if "booking details" in text:
+    # Look for either the plain text or the exact tool name
+    if "booking details" in text or "get_booking_details" in text:
         booking_id = extract_booking_id(instruction)
 
         if booking_id is None:
@@ -212,7 +225,7 @@ def task_to_tool_call(
             },
         )
 
-    if "disruption report" in text:
+    if "disruption report" in text or "generate_disruption_report" in text:
         return (
             "generate_disruption_report",
             {},
@@ -357,7 +370,7 @@ async def run_decomposition(goal: str) -> dict[str, Any]:
 
     client = create_gemini_client()
 
-    async with connect_mcp() as (read_stream, write_stream):
+    async with await connect_mcp() as (read_stream, write_stream):
 
         async with ClientSession(
             read_stream,

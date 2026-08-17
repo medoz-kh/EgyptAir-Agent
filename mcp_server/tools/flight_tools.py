@@ -1,20 +1,11 @@
-from database import get_connection
-from app import mcp
-from pydantic import BaseModel, Field, ConfigDict
+from mcp_server.database import get_connection
+from mcp_server.app import mcp
 
-# -----------------------------
-# Strict JSON Schema
-# -----------------------------
-class GetFlightStatusArgs(BaseModel):
-    flight_number: str = Field(..., description="The flight number to check.")
-    
-    # Enforces additionalProperties: false
-    model_config = ConfigDict(extra="forbid")
 
 @mcp.tool()
-def get_flight_status(args: GetFlightStatusArgs) -> dict:
+def get_flight_status(flight_number: str) -> dict:
     """
-    Retrieve the current status and schedule of a flight using its flight number.
+    Retrieve the current status and delay information for an EgyptAir flight.
     """
     connection = get_connection()
     cursor = connection.cursor()
@@ -33,7 +24,7 @@ def get_flight_status(args: GetFlightStatusArgs) -> dict:
             FROM Flights
             WHERE flight_number = ?
             """,
-            (args.flight_number,),
+            (flight_number,),
         )
 
         flight = cursor.fetchone()

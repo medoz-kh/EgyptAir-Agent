@@ -1,4 +1,4 @@
-from app import mcp
+from mcp_server.app import mcp
 from fastmcp import Message, UserMessage, AssistantMessage
 
 @mcp.prompt()

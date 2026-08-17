@@ -54,6 +54,16 @@ class LATSResult:
     iterations: int
     root: LATSNode
 
+def clean_schema(schema: dict) -> dict:
+    if isinstance(schema, dict):
+        schema.pop("additionalProperties", None)
+        schema.pop("additional_properties", None)
+        for key, value in schema.items():
+            clean_schema(value)
+    elif isinstance(schema, list):
+        for item in schema:
+            clean_schema(item)
+    return schema
 
 def _uct(node: LATSNode, exploration_weight: float) -> float:
     if node.visits == 0:
@@ -123,7 +133,7 @@ async def lats(
                 system_instruction=system_instruction_action,
                 temperature=0.5,
                 response_mime_type="application/json",
-                response_schema=LATSActionBatch,
+                response_schema=clean_schema(LATSActionBatch.model_json_schema()),
             )
         )
         
@@ -157,7 +167,7 @@ async def lats(
                     system_instruction=system_instruction_val,
                     temperature=0.1,
                     response_mime_type="application/json",
-                    response_schema=ValueEstimate,
+                    response_schema=clean_schema(ValueEstimate.model_json_schema()),
                 )
             )
             
