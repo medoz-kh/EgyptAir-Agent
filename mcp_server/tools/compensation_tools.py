@@ -1,227 +1,153 @@
 from database import get_connection
 from app import mcp
-from authorization import authorize_manager
+from authorization import authorize_manager, authorize_customer_service
 from notifications import notify_tools_changed
 from validation import (
     validate_booking_exists,
     validate_requested_amount,
     validate_flight_eligible_for_compensation,
 )
+from fastmcp import Context
+from pydantic import BaseModel, Field, ConfigDict
 
-from authorization import authorize_customer_service
+# -----------------------------
+# Strict JSON Schemas
+# -----------------------------
+class SubmitCompensationArgs(BaseModel):
+    employee_id: int = Field(..., description="The ID of the employee submitting the request.")
+    booking_id: int = Field(..., description="The ID of the booking.")
+    requested_amount: float = Field(..., description="Amount requested.", gt=0)
+    reason: str = Field(..., description="Reason for compensation.")
+    
+    # This enforces additionalProperties: false
+    model_config = ConfigDict(extra="forbid")
 
+class ApproveCompensationArgs(BaseModel):
+    employee_id: int = Field(..., description="The ID of the manager.")
+    request_id: int = Field(..., description="The ID of the compensation request.")
+    
+    model_config = ConfigDict(extra="forbid")
 
 @mcp.tool()
-def submit_compensation_request(
-    employee_id: int,
-    booking_id: int,
-    requested_amount: float,
-    reason: str,
-) -> dict:
+def submit_compensation_request(args: SubmitCompensationArgs) -> dict:
     """
     Submit a new compensation request for a passenger.
     Only Customer Service employees are allowed to create requests.
     """
-
-    # -----------------------------
-    # Authorization
-    # -----------------------------
-    auth = authorize_customer_service(employee_id)
-
+    auth = authorize_customer_service(args.employee_id)
     if not auth["authorized"]:
         return auth
 
-    # -----------------------------
-    # Validation
-    # -----------------------------
-    booking_validation = validate_booking_exists(booking_id)
-
+    booking_validation = validate_booking_exists(args.booking_id)
     if not booking_validation["valid"]:
         return booking_validation
 
-    amount_validation = validate_requested_amount(requested_amount)
-
+    amount_validation = validate_requested_amount(args.requested_amount)
     if not amount_validation["valid"]:
         return amount_validation
 
-    eligibility_validation = validate_flight_eligible_for_compensation(
-        booking_id
-    )
-
+    eligibility_validation = validate_flight_eligible_for_compensation(args.booking_id)
     if not eligibility_validation["valid"]:
         return eligibility_validation
 
-    # -----------------------------
-    # Insert Request
-    # -----------------------------
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO CompensationRequests
-        (
-            booking_id,
-            requested_amount,
-            reason,
-            status,
-            approved_by,
-            created_at
+    try:
+        cursor.execute(
+            """
+            INSERT INTO CompensationRequests
+            (booking_id, requested_amount, reason, status, approved_by, created_at)
+            VALUES (?, ?, ?, 'Pending', NULL, DATE('now'))
+            """,
+            (args.booking_id, args.requested_amount, args.reason),
         )
-        VALUES
-        (
-            ?, ?, ?, 'Pending', NULL, DATE('now')
-        )
-        """,
-        (
-            booking_id,
-            requested_amount,
-            reason,
-        ),
-    )
+        connection.commit()
+        request_id = cursor.lastrowid
+        
+        return {
+            "success": True,
+            "request_id": request_id,
+            "booking_id": args.booking_id,
+            "status": "Pending",
+            "message": "Compensation request submitted successfully."
+        }
+    except Exception as e:
+        connection.rollback()
+        return {"success": False, "message": f"Database error: {str(e)}"}
+    finally:
+        connection.close()
 
-    connection.commit()
 
-    request_id = cursor.lastrowid
-
-    connection.close()
-
-    return {
-        "success": True,
-        "request_id": request_id,
-        "booking_id": booking_id,
-        "status": "Pending",
-        "message": "Compensation request submitted successfully."
-    }
-
-from fastmcp import Context
 @mcp.tool()
-async def approve_compensation(
-    employee_id: int,
-    request_id: int,
-     ctx: Context,
-) -> dict:
+async def approve_compensation(args: ApproveCompensationArgs, ctx: Context) -> dict:
     """
     Approve or reject a compensation request.
     Only managers can perform this action.
     """
-
-    # -----------------------------
-    # Authorization
-    # -----------------------------
-    auth = authorize_manager(employee_id)
-
+    auth = authorize_manager(args.employee_id)
     if not auth["authorized"]:
         return auth
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    # -----------------------------
-    # Check request exists
-    # -----------------------------
-    cursor.execute(
-        """
-        SELECT
-            status,
-            requested_amount,
-            booking_id
-        FROM CompensationRequests
-        WHERE request_id = ?
-        """,
-        (request_id,)
-    )
+    try:
+        cursor.execute(
+            """
+            SELECT status, requested_amount, booking_id
+            FROM CompensationRequests
+            WHERE request_id = ?
+            """,
+            (args.request_id,)
+        )
+        request = cursor.fetchone()
 
-    request = cursor.fetchone()
+        if request is None:
+            return {"success": False, "message": "Compensation request not found."}
 
-    if request is None:
-        connection.close()
+        # The handler logic is now fixed: it only elicits IF it is pending.
+        if request["status"] != "Pending":  
+            return {"success": False, "message": f"Request is already {request['status']}."}
 
-        return {
-            "success": False,
-            "message": "Compensation request not found."
-        }
-
-    # -----------------------------
-    # Must be pending
-    # -----------------------------
-    if request["status"] != "Pending":  
         confirmation = await ctx.elicit(
-        message=f"""
-        Are you sure you want to approve this compensation request?
+            message=f"""
+            Are you sure you want to approve this compensation request?
+            Request ID: {args.request_id}
+            Booking ID: {request["booking_id"]}
+            Requested Amount: ${request["requested_amount"]}
+            """,
+            response_type=bool,
+        )
 
-Request ID:
-{request_id}
+        if confirmation.action != "accept":
+            return {"success": False, "message": "Operation cancelled by user."}
 
-Booking ID:
-{request["booking_id"]}
+        approve = confirmation.data
+        new_status = "Approved" if approve else "Rejected"
 
-Requested Amount:
-${request["requested_amount"]}
-""",
-        response_type=bool,
-    )
-
-
-    if confirmation.action != "accept":
-
-        connection.close()
+        cursor.execute(
+            """
+            UPDATE CompensationRequests
+            SET status = ?, approved_by = ?
+            WHERE request_id = ?
+            """,
+            (new_status, args.employee_id, args.request_id),
+        )
+        connection.commit()
+        
+        # Emits the tool change notification safely
+        await notify_tools_changed(ctx)
 
         return {
-            "success": False,
-            "message": "Operation cancelled by user."
+            "success": True,
+            "request_id": args.request_id,
+            "status": new_status,
+            "approved_by": args.employee_id,
+            "message": f"Request {new_status.lower()} successfully."
         }
-
-
-    approve = confirmation.data
-        
-        
-        
-
-    ##################################################################
-    #
-    # MCP ELICITATION GOES HERE
-    #
-    # Ask:
-    #
-    # Approve compensation request?
-    #
-    # Amount:
-    # Booking:
-    #
-    ##################################################################
-
-    new_status = "Approved" if approve else "Rejected"
-
-    cursor.execute(
-        """
-        UPDATE CompensationRequests
-        SET
-            status = ?,
-            approved_by = ?
-        WHERE request_id = ?
-        """,
-        (
-            new_status,
-            employee_id,
-            request_id,
-        ),
-    )
-
-    connection.commit()
-    await notify_tools_changed(ctx)
-    connection.close()
-
-    ##################################################################
-    #
-    # MCP tools/list_changed notification goes here
-    #
-    ##################################################################
-
-    return {
-        "success": True,
-        "request_id": request_id,
-        "status": new_status,
-        "approved_by": employee_id,
-        "message": f"Request {new_status.lower()} successfully."
-    }
+    except Exception as e:
+        connection.rollback()
+        return {"success": False, "message": f"Database error: {str(e)}"}
+    finally:
+        connection.close()

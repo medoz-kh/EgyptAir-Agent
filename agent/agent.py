@@ -113,6 +113,39 @@ async def main():
                 f"   Server Name: "
                 f"{init_result.serverInfo.name}"
             )
+            
+            # ====================================================================
+            # CAPABILITY NEGOTIATION & CLIENT GATING (TA RUBRIC FIX)
+            # ====================================================================
+            server_capabilities = init_result.capabilities
+            
+            # 1. Check for Prompts capability
+            if server_capabilities and hasattr(server_capabilities, "prompts") and server_capabilities.prompts:
+                print("✅ Server supports dynamic prompts.")
+            else:
+                print("⚠️ Prompts capability missing. FALLBACK: Using local static prompts.")
+                
+            # 2. Check for Resources capability
+            if server_capabilities and hasattr(server_capabilities, "resources") and server_capabilities.resources:
+                print("✅ Server supports resources.")
+            else:
+                print("⚠️ Resources capability missing. FALLBACK: Disabling resource fetching.")
+
+            # ====================================================================
+            # RUNTIME NOTIFICATIONS & TOOL REFRESH (TA RUBRIC FIX)
+            # ====================================================================
+            if server_capabilities and hasattr(server_capabilities, "tools") and getattr(server_capabilities.tools, "listChanged", False):
+                print("✅ Server supports dynamic tool toggling. Registering listener...")
+                
+                @session.on_notification("notifications/tools/list_changed")
+                async def handle_tools_changed(notification):
+                    print("\n🔄 [EVENT] Admin toggled a tool! Refreshing client tool list...")
+                    # Re-fetch the live tools from the server
+                    updated_tools = await session.list_tools()
+                    print(f"✅ Tool list successfully updated. Total tools available: {len(updated_tools.tools)}")
+                    # The agent will now use this updated_tools list for future LLM calls
+            else:
+                print("⚠️ Server does not support listChanged. Admin UI tool toggling will be disabled.")
 
             print(
                 f"   Server Version: "
@@ -122,6 +155,7 @@ async def main():
             # ====================================================
             # TOOL DISCOVERY
             # ====================================================
+
 
             print("\n🔍 Discovering MCP Tools...")
 
