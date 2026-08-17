@@ -14,7 +14,7 @@ if str(REFERENCE_TOOLKIT) not in sys.path:
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from planning_lab.algorithms.dynamic_decomposition import dynamic_decomposition
+from algorithms.dynamic_decomposition import dynamic_decomposition
 
 
 FLIGHT_NUMBER = "MS701"

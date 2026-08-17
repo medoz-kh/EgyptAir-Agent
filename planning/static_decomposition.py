@@ -10,7 +10,7 @@ REFERENCE_TOOLKIT = PROJECT_ROOT / "external" / "task_decomposition_and_planning
 if str(REFERENCE_TOOLKIT) not in sys.path:
     sys.path.insert(0, str(REFERENCE_TOOLKIT))
 
-from planning_lab.models import Plan, Task
+from models import Plan, Task
 
 
 def build_static_disruption_plan(
