@@ -1,4 +1,7 @@
 mcp
+langgraph>=0.2.0
+langgraph-checkpoint-sqlite
+pytest
 langchain
 langchain-mcp-adapters
 langchain-google-genai
