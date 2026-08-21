@@ -13,3 +13,4 @@ aiosqlite
 chromadb>=0.4.0
 rank-bm25>=0.2.2
 google-genai
+streamlit
