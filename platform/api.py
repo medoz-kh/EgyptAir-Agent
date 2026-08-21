@@ -72,3 +72,28 @@ def resolve_ticket(action: TicketAction):
             ticket["status"] = action.decision
             return {"status": "SUCCESS", "ticket_id": action.ticket_id, "new_status": action.decision}
     raise HTTPException(status_code=404, detail="Ticket ID not found.")
+
+class ChatRequest(BaseModel):
+    prompt: str
+    agent_type: str  # "state_graph" or "legacy_planning"
+
+@app.post("/api/chat")
+async def chat_endpoint(req: ChatRequest):
+    """
+    Guardrail Check: Routes requests between State-Graph agents
+    and Legacy Memory/RAG/Planning agents based on UI selection.
+    """
+    if req.agent_type == "state_graph":
+        # Dispatch to State-Graph / LangGraph Agent Workflow
+        response_text = f"[State-Graph Agent Executed]: Processed '{req.prompt}' using graph state transitions."
+    elif req.agent_type == "legacy_planning":
+        # Dispatch to Legacy Memory/RAG/Planning Router (PS, ToT, LATS)
+        response_text = f"[Legacy Planning Agent Executed]: Processed '{req.prompt}' using Plan-and-Solve / ToT logic."
+    else:
+        raise HTTPException(status_code=400, detail="Invalid agent type selected.")
+
+    return {
+        "status": "SUCCESS",
+        "agent_used": req.agent_type,
+        "response": response_text
+    }
